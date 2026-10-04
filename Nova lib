@@ -5,298 +5,405 @@ local UserInputService = game:GetService("UserInputService")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
-local Purple = Color3.fromRGB(145, 75, 255)
-local LightPurple = Color3.fromRGB(195, 145, 255)
-local Dark = Color3.fromRGB(19, 17, 27)
-local Panel = Color3.fromRGB(29, 25, 39)
-local White = Color3.fromRGB(245, 240, 255)
+local NOVAS = {}
 
-local function Create(class, props, parent)
-    local obj = Instance.new(class)
+NOVAS.Theme = {
+    Background = Color3.fromRGB(15, 13, 23),
+    Panel = Color3.fromRGB(24, 20, 36),
+    Secondary = Color3.fromRGB(34, 28, 50),
+    Accent = Color3.fromRGB(155, 80, 255),
+    AccentLight = Color3.fromRGB(205, 145, 255),
+    Text = Color3.fromRGB(245, 240, 255),
+    Muted = Color3.fromRGB(160, 150, 180),
+    Border = Color3.fromRGB(100, 65, 150),
+    Success = Color3.fromRGB(100, 230, 155),
+    Error = Color3.fromRGB(255, 95, 115)
+}
 
-    for key, value in pairs(props or {}) do
-        obj[key] = value
+NOVAS.GlassEnabled = true
+NOVAS.GlassTransparency = 0.70
+NOVAS.CornerRadius = 10
+
+local Windows = {}
+local AccentObjects = {}
+local Corners = {}
+local GlassObjects = {}
+local Notifications = {}
+
+local function create(className, properties, parent)
+    local object = Instance.new(className)
+    for property, value in pairs(properties or {}) do
+        object[property] = value
+    end
+    object.Parent = parent
+    return object
+end
+
+local function tween(object, duration, properties, style)
+    local info = TweenInfo.new(
+        duration or 0.2,
+        style or Enum.EasingStyle.Quad,
+        Enum.EasingDirection.Out
+    )
+    local animation = TweenService:Create(object, info, properties)
+    animation:Play()
+    return animation
+end
+
+local function addCorner(object, radius)
+    local corner = create("UICorner", {
+        CornerRadius = UDim.new(0, radius or NOVAS.CornerRadius)
+    }, object)
+    table.insert(Corners, corner)
+    return corner
+end
+
+local function addStroke(object, color, thickness, transparency)
+    local stroke = create("UIStroke", {
+        Color = color or NOVAS.Theme.Border,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0.2
+    }, object)
+
+    if color == NOVAS.Theme.Accent then
+        table.insert(AccentObjects, {
+            Object = stroke,
+            Property = "Color"
+        })
     end
 
-    obj.Parent = parent
-    return obj
+    return stroke
 end
 
-local function Corner(parent, radius)
-    return Create("UICorner", {
-        CornerRadius = UDim.new(0, radius or 10)
-    }, parent)
+local function addAccent(object, property)
+    table.insert(AccentObjects, {
+        Object = object,
+        Property = property
+    })
 end
 
-local function Stroke(parent, color, thickness)
-    return Create("UIStroke", {
-        Color = color or Purple,
-        Thickness = thickness or 1,
-        Transparency = 0.2
-    }, parent)
+local function applyGlass()
+    for _, entry in ipairs(GlassObjects) do
+        local object = entry.Object
+        if object and object.Parent then
+            if NOVAS.GlassEnabled then
+                object.BackgroundTransparency = NOVAS.GlassTransparency
+            else
+                object.BackgroundTransparency = entry.SolidTransparency or 0
+            end
+        end
+    end
 end
 
-local function Tween(object, duration, properties)
-    local tween = TweenService:Create(
-        object,
-        TweenInfo.new(
-            duration,
-            Enum.EasingStyle.Quint,
-            Enum.EasingDirection.Out
-        ),
-        properties
-    )
+function NOVAS:SetAccent(color)
+    if typeof(color) ~= "Color3" then
+        return
+    end
 
-    tween:Play()
-    return tween
+    NOVAS.Theme.Accent = color
+    NOVAS.Theme.AccentLight = color:Lerp(Color3.new(1, 1, 1), 0.4)
+
+    for _, entry in ipairs(AccentObjects) do
+        if entry.Object and entry.Object.Parent then
+            pcall(function()
+                entry.Object[entry.Property] = color
+            end)
+        end
+    end
 end
 
-local function Label(parent, text, size, position, textSize)
-    return Create("TextLabel", {
-        BackgroundTransparency = 1,
-        Text = text,
-        Size = size,
-        Position = position,
-        Font = Enum.Font.Gotham,
-        TextSize = textSize or 13,
-        TextColor3 = White,
-        TextXAlignment = Enum.TextXAlignment.Left
-    }, parent)
+function NOVAS:SetGlass(enabled)
+    NOVAS.GlassEnabled = enabled == true
+    applyGlass()
 end
 
--- Notifications
+function NOVAS:SetGlassTransparency(value)
+    NOVAS.GlassTransparency = math.clamp(value, 0, 0.95)
+    applyGlass()
+end
 
-function NOVAS:Notify(options)
-    options = options or {}
+function NOVAS:SetCornerRadius(value)
+    NOVAS.CornerRadius = math.clamp(value, 0, 30)
 
-    local title = options.Title or "NOVAS"
-    local content = options.Content or "Notification"
-    local duration = options.Duration or 3
+    for _, corner in ipairs(Corners) do
+        if corner and corner.Parent then
+            corner.CornerRadius = UDim.new(0, NOVAS.CornerRadius)
+        end
+    end
+end
 
-    local gui = Create("ScreenGui", {
-        Name = "NOVAS_Notifications",
-        ResetOnSpawn = false,
-        DisplayOrder = 100
-    }, PlayerGui)
+function NOVAS:Notify(data)
+    data = data or {}
 
-    local frame = Create("Frame", {
-        Size = UDim2.new(0, 280, 0, 85),
-        Position = UDim2.new(1, 320, 1, -110),
-        BackgroundColor3 = Panel,
+    local title = data.Title or "NOVAS GUI"
+    local content = data.Content or ""
+    local duration = data.Duration or 3
+
+    local gui = PlayerGui:FindFirstChild("NOVAS_Notifications")
+    if not gui then
+        gui = create("ScreenGui", {
+            Name = "NOVAS_Notifications",
+            ResetOnSpawn = false,
+            IgnoreGuiInset = true,
+            DisplayOrder = 100
+        }, PlayerGui)
+    end
+
+    local frame = create("Frame", {
+        Size = UDim2.new(0, 270, 0, 78),
+        Position = UDim2.new(1, 290, 1, -100),
+        BackgroundColor3 = NOVAS.Theme.Panel,
         BackgroundTransparency = 0.12,
         BorderSizePixel = 0
     }, gui)
 
-    Corner(frame, 12)
-    Stroke(frame, Purple, 1.5)
+    addCorner(frame, 12)
+    addStroke(frame, NOVAS.Theme.Accent, 1.4)
 
-    Create("UIGradient", {
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(
-                0,
-                Color3.fromRGB(54, 35, 82)
-            ),
-            ColorSequenceKeypoint.new(1, Dark)
-        }),
-        Rotation = 35
-    }, frame)
-
-    local accent = Create("Frame", {
-        Size = UDim2.new(0, 4, 1, -20),
-        Position = UDim2.new(0, 8, 0, 10),
-        BackgroundColor3 = LightPurple,
+    local bar = create("Frame", {
+        Size = UDim2.new(0, 4, 1, -18),
+        Position = UDim2.new(0, 8, 0, 9),
+        BackgroundColor3 = NOVAS.Theme.Accent,
         BorderSizePixel = 0
     }, frame)
+    addCorner(bar, 4)
+    addAccent(bar, "BackgroundColor3")
 
-    Corner(accent, 5)
+    create("TextLabel", {
+        Size = UDim2.new(1, -34, 0, 25),
+        Position = UDim2.new(0, 22, 0, 9),
+        BackgroundTransparency = 1,
+        Text = title,
+        TextColor3 = NOVAS.Theme.Text,
+        TextSize = 15,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left
+    }, frame)
 
-    Label(
-        frame,
-        title,
-        UDim2.new(1, -35, 0, 25),
-        UDim2.new(0, 22, 0, 12),
-        15
-    )
+    create("TextLabel", {
+        Size = UDim2.new(1, -34, 0, 34),
+        Position = UDim2.new(0, 22, 0, 34),
+        BackgroundTransparency = 1,
+        Text = content,
+        TextColor3 = NOVAS.Theme.Muted,
+        TextSize = 12,
+        Font = Enum.Font.Gotham,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top
+    }, frame)
 
-    local message = Label(
-        frame,
-        content,
-        UDim2.new(1, -35, 0, 35),
-        UDim2.new(0, 22, 0, 39),
-        12
-    )
-
-    message.TextColor3 = Color3.fromRGB(195, 185, 210)
-    message.TextWrapped = true
-
-    Tween(frame, 0.45, {
-        Position = UDim2.new(1, -300, 1, -110)
-    })
+    tween(frame, 0.35, {
+        Position = UDim2.new(1, -290, 1, -100)
+    }, Enum.EasingStyle.Back)
 
     task.delay(duration, function()
-        if frame.Parent then
-            Tween(frame, 0.35, {
-                Position = UDim2.new(1, 320, 1, -110),
+        if frame and frame.Parent then
+            tween(frame, 0.25, {
+                Position = UDim2.new(1, 290, 1, -100),
                 BackgroundTransparency = 1
             })
-
-            task.wait(0.4)
-            gui:Destroy()
+            task.wait(0.3)
+            if frame then
+                frame:Destroy()
+            end
         end
     end)
-
-    return gui
 end
 
--- Main window
+local function makeText(parent, text, size, color, bold)
+    return create("TextLabel", {
+        BackgroundTransparency = 1,
+        Text = text or "",
+        TextColor3 = color or NOVAS.Theme.Text,
+        TextSize = size or 13,
+        Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center
+    }, parent)
+end
 
-function NOVAS:CreateWindow(options)
-    options = options or {}
+local function makeButton(parent, text, size)
+    local button = create("TextButton", {
+        Size = size or UDim2.new(1, 0, 0, 34),
+        BackgroundColor3 = NOVAS.Theme.Secondary,
+        BackgroundTransparency = 0.15,
+        BorderSizePixel = 0,
+        Text = text or "Button",
+        TextColor3 = NOVAS.Theme.Text,
+        TextSize = 12,
+        Font = Enum.Font.GothamSemibold,
+        AutoButtonColor = false
+    }, parent)
 
-    local window = {}
-    local title = options.Title or "NOVAS GUI"
-    local size = options.Size or UDim2.new(0, 550, 0, 390)
+    addCorner(button, NOVAS.CornerRadius)
+    addStroke(button, NOVAS.Theme.Border, 1, 0.45)
 
-    local gui = Create("ScreenGui", {
+    button.MouseEnter:Connect(function()
+        tween(button, 0.15, {
+            BackgroundColor3 = NOVAS.Theme.Accent
+        })
+    end)
+
+    button.MouseLeave:Connect(function()
+        tween(button, 0.15, {
+            BackgroundColor3 = NOVAS.Theme.Secondary
+        })
+    end)
+
+    return button
+end
+
+function NOVAS:CreateWindow(settings)
+    settings = settings or {}
+
+    local title = settings.Title or "NOVAS GUI"
+    local width = settings.Width or 620
+    local height = settings.Height or 430
+
+    local screen = create("ScreenGui", {
         Name = "NOVAS_GUI",
         ResetOnSpawn = false,
+        IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     }, PlayerGui)
 
-    local main = Create("Frame", {
-        Name = "Main",
-        Size = size,
-        Position = UDim2.new(
-            0.5,
-            -size.X.Offset / 2,
-            0.5,
-            -size.Y.Offset / 2
-        ),
-        BackgroundColor3 = Dark,
-        BackgroundTransparency = 0.15,
+    local scale = create("UIScale", {
+        Scale = 1
+    }, nil)
+
+    local window = create("Frame", {
+        Name = "MainWindow",
+        Size = UDim2.new(0, width, 0, height),
+        Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2),
+        BackgroundColor3 = NOVAS.Theme.Background,
+        BackgroundTransparency = NOVAS.GlassTransparency,
         BorderSizePixel = 0,
         ClipsDescendants = true
-    }, gui)
+    }, screen)
 
-    Corner(main, 14)
-    Stroke(main, Purple, 1.5)
+    scale.Parent = window
+    addCorner(window, NOVAS.CornerRadius)
+    addStroke(window, NOVAS.Theme.Accent, 1.5)
+    addAccent(window:FindFirstChildOfClass("UIStroke"), "Color")
 
-    Create("UIGradient", {
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(
-                0,
-                Color3.fromRGB(39, 29, 56)
-            ),
-            ColorSequenceKeypoint.new(1, Dark)
-        }),
-        Rotation = 45
-    }, main)
+    table.insert(GlassObjects, {
+        Object = window,
+        SolidTransparency = 0
+    })
 
-    local header = Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 48),
-        BackgroundColor3 = Color3.fromRGB(34, 27, 48),
-        BackgroundTransparency = 0.12,
+    local header = create("Frame", {
+        Name = "Header",
+        Size = UDim2.new(1, 0, 0, 43),
+        BackgroundColor3 = NOVAS.Theme.Panel,
+        BackgroundTransparency = 0.15,
         BorderSizePixel = 0
-    }, main)
+    }, window)
 
-    local titleLabel = Label(
-        header,
-        title,
-        UDim2.new(1, -110, 1, 0),
-        UDim2.new(0, 17, 0, 0),
-        17
-    )
+    local titleLabel = makeText(header, title, 16, NOVAS.Theme.Text, true)
+    titleLabel.Position = UDim2.new(0, 16, 0, 0)
+    titleLabel.Size = UDim2.new(1, -120, 1, 0)
 
-    titleLabel.Font = Enum.Font.GothamBold
-
-    Create("UIGradient", {
-        Color = ColorSequence.new(Purple, LightPurple)
+    local gradient = create("UIGradient", {
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, NOVAS.Theme.Accent),
+            ColorSequenceKeypoint.new(0.5, NOVAS.Theme.AccentLight),
+            ColorSequenceKeypoint.new(1, NOVAS.Theme.Accent)
+        })
     }, titleLabel)
 
-    local minimize = Create("TextButton", {
-        Size = UDim2.new(0, 32, 0, 30),
-        Position = UDim2.new(1, -77, 0, 9),
-        BackgroundColor3 = Panel,
-        Text = "−",
-        TextColor3 = White,
-        TextSize = 22,
-        Font = Enum.Font.GothamBold,
-        BorderSizePixel = 0
-    }, header)
+    task.spawn(function()
+        while gradient.Parent do
+            tween(gradient, 2, {
+                Rotation = 180
+            })
+            task.wait(2)
+            if gradient.Parent then
+                tween(gradient, 2, {
+                    Rotation = 360
+                })
+            end
+            task.wait(2)
+            gradient.Rotation = 0
+        end
+    end)
 
-    Corner(minimize, 8)
+    local minimize = makeButton(header, "—", UDim2.new(0, 30, 0, 28))
+    minimize.Position = UDim2.new(1, -72, 0, 7)
+    minimize.TextSize = 16
 
-    local close = Create("TextButton", {
-        Size = UDim2.new(0, 32, 0, 30),
-        Position = UDim2.new(1, -38, 0, 9),
-        BackgroundColor3 = Color3.fromRGB(105, 42, 65),
-        Text = "×",
-        TextColor3 = White,
-        TextSize = 19,
-        Font = Enum.Font.GothamBold,
-        BorderSizePixel = 0
-    }, header)
+    local close = makeButton(header, "×", UDim2.new(0, 30, 0, 28))
+    close.Position = UDim2.new(1, -36, 0, 7)
+    close.TextSize = 19
 
-    Corner(close, 8)
-
-    local sidebar = Create("Frame", {
-        Size = UDim2.new(0, 135, 1, -58),
-        Position = UDim2.new(0, 8, 0, 55),
-        BackgroundColor3 = Panel,
+    local sidebar = create("Frame", {
+        Name = "Sidebar",
+        Size = UDim2.new(0, 145, 1, -43),
+        Position = UDim2.new(0, 0, 0, 43),
+        BackgroundColor3 = NOVAS.Theme.Panel,
         BackgroundTransparency = 0.25,
         BorderSizePixel = 0
-    }, main)
+    }, window)
 
-    Corner(sidebar, 10)
+    table.insert(GlassObjects, {
+        Object = sidebar,
+        SolidTransparency = 0
+    })
 
-    local tabHolder = Create("Frame", {
-        Size = UDim2.new(1, -12, 1, -12),
-        Position = UDim2.new(0, 6, 0, 6),
+    local tabList = create("Frame", {
+        Size = UDim2.new(1, -14, 1, -16),
+        Position = UDim2.new(0, 7, 0, 8),
         BackgroundTransparency = 1
     }, sidebar)
 
-    Create("UIListLayout", {
-        Padding = UDim.new(0, 6),
+    create("UIListLayout", {
+        Padding = UDim.new(0, 7),
         SortOrder = Enum.SortOrder.LayoutOrder
-    }, tabHolder)
+    }, tabList)
 
-    local content = Create("Frame", {
-        Size = UDim2.new(1, -160, 1, -65),
-        Position = UDim2.new(0, 150, 0, 55),
-        BackgroundTransparency = 1
-    }, main)
+    local content = create("Frame", {
+        Name = "Content",
+        Size = UDim2.new(1, -145, 1, -43),
+        Position = UDim2.new(0, 145, 0, 43),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true
+    }, window)
 
-    local reopen = Create("TextButton", {
-        Size = UDim2.new(0, 48, 0, 48),
-        Position = UDim2.new(0, 15, 0.5, -24),
-        BackgroundColor3 = Color3.fromRGB(43, 30, 62),
-        BackgroundTransparency = 0.05,
+    local pages = {}
+    local tabs = {}
+    local minimized = false
+    local closed = false
+
+    local reopen = create("TextButton", {
+        Name = "NOVAS_Reopen",
+        Size = UDim2.new(0, 52, 0, 52),
+        Position = UDim2.new(0, 18, 0.5, -26),
+        BackgroundColor3 = NOVAS.Theme.Panel,
+        BackgroundTransparency = 0.08,
+        BorderSizePixel = 0,
         Text = "N",
-        TextColor3 = LightPurple,
-        TextSize = 22,
+        TextColor3 = NOVAS.Theme.Text,
+        TextSize = 21,
         Font = Enum.Font.GothamBold,
         Visible = false,
-        BorderSizePixel = 0
-    }, gui)
+        AutoButtonColor = false
+    }, screen)
+    addCorner(reopen, 26)
+    addStroke(reopen, NOVAS.Theme.Accent, 2)
+    addAccent(reopen:FindFirstChildOfClass("UIStroke"), "Color")
 
-    Corner(reopen, 24)
-    Stroke(reopen, Purple, 2)
+    local function showPage(name)
+        for pageName, page in pairs(pages) do
+            page.Visible = pageName == name
+        end
 
-    minimize.MouseButton1Click:Connect(function()
-        main.Visible = false
-        reopen.Visible = true
-    end)
-
-    reopen.MouseButton1Click:Connect(function()
-        main.Visible = true
-        reopen.Visible = false
-    end)
-
-    close.MouseButton1Click:Connect(function()
-        gui:Destroy()
-    end)
-
-    -- Dragging
+        for tabName, button in pairs(tabs) do
+            local selected = tabName == name
+            tween(button, 0.15, {
+                BackgroundColor3 = selected and NOVAS.Theme.Accent or NOVAS.Theme.Secondary
+            })
+        end
+    end
 
     local dragging = false
     local dragStart
@@ -307,7 +414,7 @@ function NOVAS:CreateWindow(options)
         or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
-            startPosition = main.Position
+            startPosition = window.Position
         end
     end)
 
@@ -317,8 +424,7 @@ function NOVAS:CreateWindow(options)
             or input.UserInputType == Enum.UserInputType.Touch
         ) then
             local delta = input.Position - dragStart
-
-            main.Position = UDim2.new(
+            window.Position = UDim2.new(
                 startPosition.X.Scale,
                 startPosition.X.Offset + delta.X,
                 startPosition.Y.Scale,
@@ -334,358 +440,209 @@ function NOVAS:CreateWindow(options)
         end
     end)
 
-    -- Tabs
+    minimize.MouseButton1Click:Connect(function()
+        if closed then return end
+        minimized = true
+        tween(window, 0.25, {
+            Size = UDim2.new(0, 0, 0, 0),
+            BackgroundTransparency = 1
+        }, Enum.EasingStyle.Back)
+        task.wait(0.25)
+        window.Visible = false
+        reopen.Visible = true
+    end)
 
-    local tabs = {}
+    reopen.MouseButton1Click:Connect(function()
+        if closed then return end
+        reopen.Visible = false
+        window.Visible = true
+        window.Size = UDim2.new(0, 0, 0, 0)
+        window.BackgroundTransparency = NOVAS.GlassTransparency
+        tween(window, 0.3, {
+            Size = UDim2.new(0, width, 0, height)
+        }, Enum.EasingStyle.Back)
+        minimized = false
+    end)
 
-    function window:CreateTab(name)
-        local tab = {}
+    close.MouseButton1Click:Connect(function()
+        closed = true
+        screen:Destroy()
+    end)
 
-        local button = Create("TextButton", {
-            Size = UDim2.new(1, 0, 0, 36),
-            BackgroundColor3 = Panel,
-            BackgroundTransparency = 0.35,
-            Text = name or "Tab",
-            TextColor3 = Color3.fromRGB(190, 180, 205),
-            TextSize = 12,
-            Font = Enum.Font.GothamMedium,
-            BorderSizePixel = 0,
-            AutoButtonColor = false
-        }, tabHolder)
+    local Window = {}
 
-        Corner(button, 8)
+    function Window:CreateTab(name)
+        name = name or "Tab"
 
-        local page = Create("ScrollingFrame", {
-            Size = UDim2.new(1, 0, 1, 0),
+        local tabButton = makeButton(tabList, name, UDim2.new(1, 0, 0, 34))
+        tabButton.TextXAlignment = Enum.TextXAlignment.Left
+        tabButton.Text = "   " .. name
+
+        local page = create("ScrollingFrame", {
+            Name = name .. "Page",
+            Size = UDim2.new(1, -16, 1, -16),
+            Position = UDim2.new(0, 8, 0, 8),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             ScrollBarThickness = 3,
-            ScrollBarImageColor3 = Purple,
+            ScrollBarImageColor3 = NOVAS.Theme.Accent,
             CanvasSize = UDim2.new(0, 0, 0, 0),
             AutomaticCanvasSize = Enum.AutomaticSize.Y,
             Visible = false
         }, content)
 
-        Create("UIListLayout", {
-            Padding = UDim.new(0, 10),
+        local layout = create("UIListLayout", {
+            Padding = UDim.new(0, 12),
             SortOrder = Enum.SortOrder.LayoutOrder
         }, page)
 
-        Create("UIPadding", {
-            PaddingTop = UDim.new(0, 2),
-            PaddingLeft = UDim.new(0, 2),
-            PaddingRight = UDim.new(0, 8),
-            PaddingBottom = UDim.new(0, 8)
-        }, page)
+        pages[name] = page
+        tabs[name] = tabButton
 
-        local function selectTab()
-            for _, item in ipairs(tabs) do
-                item.Page.Visible = false
+        tabButton.MouseButton1Click:Connect(function()
+            showPage(name)
+        end)
 
-                Tween(item.Button, 0.2, {
-                    BackgroundColor3 = Panel,
-                    BackgroundTransparency = 0.35,
-                    TextColor3 = Color3.fromRGB(190, 180, 205)
-                })
-            end
-
-            page.Visible = true
-
-            Tween(button, 0.2, {
-                BackgroundColor3 = Purple,
-                BackgroundTransparency = 0.1,
-                TextColor3 = White
-            })
+        if #tabList:GetChildren() <= 2 then
+            showPage(name)
         end
 
-        button.MouseButton1Click:Connect(selectTab)
+        local Tab = {}
 
-        table.insert(tabs, {
-            Button = button,
-            Page = page
-        })
-
-        if #tabs == 1 then
-            selectTab()
-        end
-
-        function tab:CreateGroupbox(groupName)
-            local group = {}
-
-            local box = Create("Frame", {
-                Size = UDim2.new(1, 0, 0, 50),
-                BackgroundColor3 = Panel,
-                BackgroundTransparency = 0.15,
-                BorderSizePixel = 0,
-                AutomaticSize = Enum.AutomaticSize.Y
+        function Tab:CreateGroupbox(groupName)
+            local box = create("Frame", {
+                Name = groupName or "Groupbox",
+                Size = UDim2.new(1, -4, 0, 60),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundColor3 = NOVAS.Theme.Panel,
+                BackgroundTransparency = 0.2,
+                BorderSizePixel = 0
             }, page)
 
-            Corner(box, 10)
-            Stroke(box, Color3.fromRGB(75, 55, 100), 1)
+            addCorner(box, NOVAS.CornerRadius)
+            addStroke(box, NOVAS.Theme.Border, 1, 0.55)
 
-            local heading = Label(
-                box,
-                groupName or "Group",
-                UDim2.new(1, -20, 0, 28),
-                UDim2.new(0, 12, 0, 5),
-                14
-            )
+            table.insert(GlassObjects, {
+                Object = box,
+                SolidTransparency = 0
+            })
 
-            heading.Font = Enum.Font.GothamBold
-            heading.TextColor3 = LightPurple
-
-            local elements = Create("Frame", {
+            local inner = create("Frame", {
                 Size = UDim2.new(1, -20, 0, 0),
-                Position = UDim2.new(0, 10, 0, 37),
-                BackgroundTransparency = 1,
-                AutomaticSize = Enum.AutomaticSize.Y
+                Position = UDim2.new(0, 10, 0, 10),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1
             }, box)
 
-            Create("UIListLayout", {
+            local innerLayout = create("UIListLayout", {
                 Padding = UDim.new(0, 8),
                 SortOrder = Enum.SortOrder.LayoutOrder
-            }, elements)
+            }, inner)
 
-            Create("UIPadding", {
-                PaddingBottom = UDim.new(0, 10)
-            }, elements)
+            local heading = makeText(inner, groupName or "Groupbox", 14, NOVAS.Theme.AccentLight, true)
+            heading.Size = UDim2.new(1, 0, 0, 23)
+            addAccent(heading, "TextColor3")
 
-            local function addRow(height)
-                return Create("Frame", {
-                    Size = UDim2.new(1, 0, 0, height),
-                    BackgroundTransparency = 1
-                }, elements)
+            local Group = {}
+
+            local function updateCanvas()
+                task.defer(function()
+                    box.Size = UDim2.new(1, -4, 0, inner.AbsoluteSize.Y + 20)
+                end)
             end
 
-            function group:CreateLabel(text)
-                local row = addRow(25)
+            innerLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
 
-                local label = Label(
-                    row,
-                    text or "Label",
-                    UDim2.new(1, 0, 1, 0),
-                    UDim2.new(0, 0, 0, 0),
-                    12
-                )
-
-                label.TextColor3 = Color3.fromRGB(200, 193, 215)
+            function Group:CreateLabel(text)
+                local label = makeText(inner, text, 12, NOVAS.Theme.Muted, false)
+                label.Size = UDim2.new(1, 0, 0, 24)
+                updateCanvas()
                 return label
             end
 
-            function group:CreateButton(config)
-                config = config or {}
-
-                local row = addRow(36)
-
-                local btn = Create("TextButton", {
-                    Size = UDim2.new(1, 0, 1, 0),
-                    BackgroundColor3 = Color3.fromRGB(78, 46, 119),
-                    Text = config.Name or "Button",
-                    TextColor3 = White,
-                    TextSize = 12,
-                    Font = Enum.Font.GothamBold,
-                    BorderSizePixel = 0,
-                    AutoButtonColor = false
-                }, row)
-
-                Corner(btn, 8)
-                Stroke(btn, Purple, 1)
-
-                btn.MouseButton1Click:Connect(function()
-                    if config.Callback then
-                        task.spawn(config.Callback)
+            function Group:CreateButton(data)
+                data = data or {}
+                local button = makeButton(inner, data.Name or "Button")
+                button.MouseButton1Click:Connect(function()
+                    if data.Callback then
+                        task.spawn(data.Callback)
                     end
                 end)
-
-                return btn
+                updateCanvas()
+                return button
             end
 
-            function group:CreateToggle(config)
-                config = config or {}
+            function Group:CreateToggle(data)
+                data = data or {}
+                local value = data.Default == true
 
-                local row = addRow(36)
-                local state = config.Default == true
+                local row = create("Frame", {
+                    Size = UDim2.new(1, 0, 0, 34),
+                    BackgroundTransparency = 1
+                }, inner)
 
-                Label(
-                    row,
-                    config.Name or "Toggle",
-                    UDim2.new(1, -70, 1, 0),
-                    UDim2.new(0, 0, 0, 0),
-                    12
-                )
+                local label = makeText(row, data.Name or "Toggle", 12, NOVAS.Theme.Text, false)
+                label.Size = UDim2.new(1, -65, 1, 0)
 
-                local switch = Create("TextButton", {
-                    Size = UDim2.new(0, 48, 0, 25),
-                    Position = UDim2.new(1, -48, 0.5, -12),
-                    BackgroundColor3 = state and Purple or Color3.fromRGB(70, 65, 80),
-                    Text = "",
+                local switch = create("TextButton", {
+                    Size = UDim2.new(0, 42, 0, 22),
+                    Position = UDim2.new(1, -44, 0.5, -11),
+                    BackgroundColor3 = value and NOVAS.Theme.Accent or NOVAS.Theme.Secondary,
                     BorderSizePixel = 0,
+                    Text = "",
                     AutoButtonColor = false
                 }, row)
+                addCorner(switch, 12)
+                addAccent(switch, "BackgroundColor3")
 
-                Corner(switch, 15)
-
-                local knob = Create("Frame", {
-                    Size = UDim2.new(0, 19, 0, 19),
-                    Position = state and UDim2.new(1, -22, 0, 3) or UDim2.new(0, 3, 0, 3),
-                    BackgroundColor3 = state and LightPurple or Color3.fromRGB(220, 215, 230),
+                local knob = create("Frame", {
+                    Size = UDim2.new(0, 16, 0, 16),
+                    Position = value and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8),
+                    BackgroundColor3 = Color3.new(1, 1, 1),
                     BorderSizePixel = 0
                 }, switch)
+                addCorner(knob, 10)
 
-                Corner(knob, 12)
-
-                local function update()
-                    Tween(switch, 0.22, {
-                        BackgroundColor3 = state and Purple or Color3.fromRGB(70, 65, 80)
+                local function setValue(newValue)
+                    value = newValue == true
+                    tween(switch, 0.18, {
+                        BackgroundColor3 = value and NOVAS.Theme.Accent or NOVAS.Theme.Secondary
                     })
-
-                    Tween(knob, 0.22, {
-                        Position = state and UDim2.new(1, -22, 0, 3) or UDim2.new(0, 3, 0, 3),
-                        BackgroundColor3 = state and LightPurple or Color3.fromRGB(220, 215, 230)
+                    tween(knob, 0.18, {
+                        Position = value and UDim2.new(1, -19, 0.5, -8)
+                            or UDim2.new(0, 3, 0.5, -8)
                     })
+                    if data.Callback then
+                        task.spawn(data.Callback, value)
+                    end
                 end
 
                 switch.MouseButton1Click:Connect(function()
-                    state = not state
-                    update()
-
-                    if config.Callback then
-                        task.spawn(config.Callback, state)
-                    end
+                    setValue(not value)
                 end)
 
-                local toggle = {}
-
-                function toggle:Set(value)
-                    state = value == true
-                    update()
-
-                    if config.Callback then
-                        task.spawn(config.Callback, state)
-                    end
-                end
-
-                function toggle:Get()
-                    return state
-                end
-
-                return toggle
+                updateCanvas()
+                return {
+                    Set = setValue,
+                    Get = function() return value end
+                }
             end
 
-            function group:CreateSlider(config)
-                config = config or {}
+            function Group:CreateSlider(data)
+                data = data or {}
+                local min = data.Min or 0
+                local max = data.Max or 100
+                local value = math.clamp(data.Default or min, min, max)
 
-                local minimum = config.Min or 0
-                local maximum = config.Max or 100
-                local value = math.clamp(
-                    config.Default or minimum,
-                    minimum,
-                    maximum
-                )
+                local holder = create("Frame", {
+                    Size = UDim2.new(1, 0, 0, 52),
+                    BackgroundTransparency = 1
+                }, inner)
 
-                local row = addRow(54)
+                local label = makeText(holder, data.Name or "Slider", 12, NOVAS.Theme.Text)
+                label.Size = UDim2.new(0.75, 0, 0, 20)
 
-                Label(
-                    row,
-                    config.Name or "Slider",
-                    UDim2.new(0.7, 0, 0, 22),
-                    UDim2.new(0, 0, 0, 0),
-                    12
-                )
-
-                local valueLabel = Label(
-                    row,
-                    tostring(value),
-                    UDim2.new(0.3, 0, 0, 22),
-                    UDim2.new(0.7, 0, 0, 0),
-                    12
-                )
-
-                valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-                valueLabel.TextColor3 = LightPurple
-
-                local track = Create("Frame", {
-                    Size = UDim2.new(1, 0, 0, 7),
-                    Position = UDim2.new(0, 0, 0, 34),
-                    BackgroundColor3 = Color3.fromRGB(65, 57, 76),
-                    BorderSizePixel = 0
-                }, row)
-
-                Corner(track, 5)
-
-                local percent = (value - minimum) / math.max(maximum - minimum, 1)
-
-                local fill = Create("Frame", {
-                    Size = UDim2.new(percent, 0, 1, 0),
-                    BackgroundColor3 = Purple,
-                    BorderSizePixel = 0
-                }, track)
-
-                Corner(fill, 5)
-
-                local knob = Create("Frame", {
-                    Size = UDim2.new(0, 15, 0, 15),
-                    AnchorPoint = Vector2.new(0.5, 0.5),
-                    Position = UDim2.new(percent, 0, 0.5, 0),
-                    BackgroundColor3 = LightPurple,
-                    BorderSizePixel = 0
-                }, track)
-
-                Corner(knob, 10)
-
-                local hitbox = Create("TextButton", {
-                    Size = UDim2.new(1, 0, 1, 15),
-                    Position = UDim2.new(0, 0, 0, -7),
-                    BackgroundTransparency = 1,
-                    Text = "",
-                    AutoButtonColor = false
-                }, track)
-
-                local function setValue(newValue)
-                    value = math.clamp(
-                        math.floor(newValue + 0.5),
-                        minimum,
-                        maximum
-                    )
-
-                    local p = (value - minimum) / math.max(maximum - minimum, 1)
-
-                    Tween(fill, 0.08, {
-                        Size = UDim2.new(p, 0, 1, 0)
-                    })
-
-                    Tween(knob, 0.08, {
-                        Position = UDim2.new(p, 0, 0.5, 0)
-                    })
-
-                    valueLabel.Text = tostring(value)
-
-                    if config.Callback then
-                        task.spawn(config.Callback, value)
-                    end
-                end
-
-                local sliding = false
-
-                local function move(input)
-                    local p = math.clamp(
-                        (input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X,
-                        0,
-                        1
-                    )
-
-                    setValue(minimum + (maximum - minimum) * p)
-                end
-
-                hitbox.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1
-                    or input.UserInputType == Enum.UserInputType.Touch then
-                        sliding = true
-                        move(input)
-                    end
-                end)
-
-                UserInputService.InputChanged:Connect(function(input)
-                    if sliding and (
-                        input.UserInputType == Enum.UserInputType.MouseMovement
-                        or input.UserInputType == Enum.Us
+                local valueLabel = makeText(holder, tostring(value), 12, NOVAS.Theme.AccentLight, true)
+                valueLabel.Size = UDim2.new(0.25, 0, 0, 20)
+                valueLabel.Position = UDim2.new(0.75, 0, 0, 0)
+                valueLa
